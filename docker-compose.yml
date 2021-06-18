@@ -1,0 +1,70 @@
+version: '3.7'
+
+services:
+
+  rabbitmq:
+    container_name: rabbitmq
+    hostname: rabbitmq
+    image: rabbitmq:3-management
+    networks:
+      - main
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=user
+      - RABBITMQ_DEFAULT_PASS=password
+    restart: on-failure
+
+  postgres:
+    container_name: postgres
+    hostname: postgres
+    image: postgres:12.0-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=covidai
+    networks:
+      - main
+    ports:
+      - "5432:5432"
+    restart: on-failure
+
+  app:
+    build: .
+    command: sh -c "cd /core && python manage.py makemigrations && python manage.py migrate --no-input --run-syncdb && python manage.py initadmin && python manage.py runserver 0.0.0.0:8080"
+    container_name: app
+    depends_on:
+      - postgres
+      - rabbitmq
+    ports:
+      - 8080:8080
+    hostname: app
+    image: app-image
+    networks:
+      - main
+    volumes:
+      - ./core:/core
+    restart: on-failure
+
+
+  celery_worker:
+    command: sh -c "cd /core && celery -A covidai worker -B -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+    container_name: celery_worker
+    depends_on:
+      - app
+      - postgres
+      - rabbitmq
+    hostname: celery_worker
+    image: app-image
+    networks:
+      - main
+    restart: on-failure
+
+networks:
+  main:
+
+volumes:
+  postgres_data:
